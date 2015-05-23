@@ -136,6 +136,9 @@ class PolyakAveragingSolver : public SGDSolver<Dtype> {
  protected:
   virtual void PreSolve();
   virtual void ComputeUpdateValue();
+  virtual void SnapshotSolverState(SolverState* state);
+  virtual void RestoreSolverState(const SolverState& state);
+
   vector<shared_ptr<Blob<Dtype> > > thetatilde_;
   DISABLE_COPY_AND_ASSIGN(PolyakAveragingSolver);
 };

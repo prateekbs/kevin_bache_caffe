@@ -959,6 +959,34 @@ void PolyakAveragingSolver<Dtype>::ComputeUpdateValue() {
   }
 }
 
+template <typename Dtype>
+void PolyakAveragingSolver<Dtype>::SnapshotSolverState(SolverState* state) {
+	state->clear_history();
+	for (int i = 0; i < this->history_.size(); ++i) {
+	   // Add history
+	   BlobProto* history_blob = state->add_history();
+	   this->history_[i]->ToProto(history_blob);
+}
+
+	for (int i = 0; i < thetatilde_.size(); ++i) {
+		   // Add thetatilde to history
+		   BlobProto* theta_tilde_blob = state->add_history();
+		   thetatilde_[i]->ToProto(theta_tilde_blob);
+	}
+}
+template <typename Dtype>
+void PolyakAveragingSolver<Dtype>::RestoreSolverState(const SolverState& state) {
+	  CHECK_EQ(state.history_size(), this->history_.size()+thetatilde_.size())
+	      << "Incorrect length of history and thetatilde blobs.";
+	  LOG(INFO) << "PolyakAveragingSolver: restoring history";
+	  for (int i = 0; i < this->history_.size(); ++i) {
+		  this->history_[i]->FromProto(state.history(i));
+	  }
+	  for (int i = 0; i < this->history_.size(); ++i) {
+		thetatilde_[i]->FromProto(state.history(i+this->history_.size()));
+	  }
+
+}
 
 
 INSTANTIATE_CLASS(Solver);
