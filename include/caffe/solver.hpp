@@ -78,7 +78,7 @@ class SGDSolver : public Solver<Dtype> {
   const vector<shared_ptr<Blob<Dtype> > >& history() { return history_; }
 
  protected:
-  void PreSolve();
+  virtual void PreSolve();
   Dtype GetLearningRate();
   virtual void ComputeUpdateValue();
   virtual void ClipGradients();
@@ -126,6 +126,20 @@ class AdaGradSolver : public SGDSolver<Dtype> {
 };
 
 template <typename Dtype>
+class PolyakAveragingSolver : public SGDSolver<Dtype> {
+ public:
+  explicit PolyakAveragingSolver(const SolverParameter& param)
+      : SGDSolver<Dtype>(param) {}
+  explicit PolyakAveragingSolver(const string& param_file)
+      : SGDSolver<Dtype>(param_file) {}
+
+ protected:
+  virtual void PreSolve();
+  virtual void ComputeUpdateValue();
+  vector<shared_ptr<Blob<Dtype> > > thetatilde_;
+  DISABLE_COPY_AND_ASSIGN(PolyakAveragingSolver);
+};
+template <typename Dtype>
 Solver<Dtype>* GetSolver(const SolverParameter& param) {
   SolverParameter_SolverType type = param.solver_type();
 
@@ -136,6 +150,9 @@ Solver<Dtype>* GetSolver(const SolverParameter& param) {
       return new NesterovSolver<Dtype>(param);
   case SolverParameter_SolverType_ADAGRAD:
       return new AdaGradSolver<Dtype>(param);
+  case SolverParameter_SolverType_POLYAKAVERAGING:
+        return new PolyakAveragingSolver<Dtype>(param);
+
   default:
       LOG(FATAL) << "Unknown SolverType: " << type;
   }

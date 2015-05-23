@@ -819,9 +819,155 @@ void AdaGradSolver<Dtype>::ComputeUpdateValue() {
   }
 }
 
+template <typename Dtype>
+void PolyakAveragingSolver<Dtype>::PreSolve() {
+	// Initialize the history
+	/*
+	const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
+	history_.clear();
+	update_.clear();
+	temp_.clear();
+	thetatilde_.clear();
+	*/
+	const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
+	for (int i = 0; i < net_params.size(); ++i) {
+		const vector<int>& shape = net_params[i]->shape();
+	//	history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+	//	update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+	//	temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+		thetatilde_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+	}
+}
+template <typename Dtype>
+void PolyakAveragingSolver<Dtype>::ComputeUpdateValue() {
+  const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
+  const vector<float>& net_params_lr = this->net_->params_lr();
+  const vector<float>& net_params_weight_decay =
+	  this->net_->params_weight_decay();
+  // get the learning rate
+  Dtype rate = SGDSolver<Dtype>::GetLearningRate();
+  if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
+	LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
+  }
+  SGDSolver<Dtype>::ClipGradients();
+  Dtype momentum = this->param_.momentum();
+  Dtype weight_decay = this->param_.weight_decay();
+  string regularization_type = this->param_.regularization_type();
+  switch (Caffe::mode()) {
+  case Caffe::CPU:
+	for (int param_id = 0; param_id < net_params.size(); ++param_id) {
+	  // Compute the value to history, and then copy them to the blob's diff.
+	  Dtype local_rate = rate * net_params_lr[param_id];
+	  Dtype local_decay = weight_decay * net_params_weight_decay[param_id];
+
+	  if (local_decay) {
+		if (regularization_type == "L2") {
+		  // add weight decay
+		  caffe_axpy(net_params[param_id]->count(),
+			  local_decay,
+			  net_params[param_id]->cpu_data(),
+			  net_params[param_id]->mutable_cpu_diff());
+		} else if (regularization_type == "L1") {
+		  caffe_cpu_sign(net_params[param_id]->count(),
+			  net_params[param_id]->cpu_data(),
+			  this->temp_[param_id]->mutable_cpu_data());
+		  caffe_axpy(net_params[param_id]->count(),
+			  local_decay,
+			  this->temp_[param_id]->cpu_data(),
+			  net_params[param_id]->mutable_cpu_diff());
+		} else {
+		  LOG(FATAL) << "Unknown regularization type: " << regularization_type;
+		}
+	  }
+
+ // alpha*gradient + mu * previous weight update
+	  caffe_cpu_axpby(net_params[param_id]->count(), local_rate,
+				net_params[param_id]->cpu_diff(), momentum,
+				this->history_[param_id]->mutable_cpu_data());
+	  // Not so sure about whether it should be addition or subtraction
+	  // theta_(t+1)=theta_t-gradient
+	  // Here temp_ is used to store theta_t+1,
+	  //theta_t is net_params[param_id]->cpu_data()
+	  //current gradient is in history_ due to the previous axpby
+	  caffe_add(net_params[param_id]->count(),
+			  net_params[param_id]->cpu_data(),
+			  this->history_[param_id]->cpu_data(),
+	          this->temp_[param_id]->mutable_cpu_data());
+	  // theta_tilde_t+1= alpha*theta_tilde_t+(1-alpha)*theta_(t+1)
+	  caffe_cpu_axpby(net_params[param_id]->count(), (1-local_rate),
+			  this->temp_[param_id]->mutable_cpu_data(), local_rate,
+	  		  thetatilde_[param_id]->mutable_cpu_data());
+
+	  // copy
+	  caffe_copy(net_params[param_id]->count(),
+		  this->history_[param_id]->cpu_data(),
+		  net_params[param_id]->mutable_cpu_diff());
+	}
+	break;
+  case Caffe::GPU:
+#ifndef CPU_ONLY
+	for (int param_id = 0; param_id < net_params.size(); ++param_id) {
+	  // Compute the value to history, and then copy them to the blob's diff.
+	  Dtype local_rate = rate * net_params_lr[param_id];
+	  Dtype local_decay = weight_decay * net_params_weight_decay[param_id];
+
+	  if (local_decay) {
+		if (regularization_type == "L2") {
+		  // add weight decay
+		  caffe_gpu_axpy(net_params[param_id]->count(),
+			  local_decay,
+			  net_params[param_id]->gpu_data(),
+			  net_params[param_id]->mutable_gpu_diff());
+		} else if (regularization_type == "L1") {
+		  caffe_gpu_sign(net_params[param_id]->count(),
+			  net_params[param_id]->gpu_data(),
+			  this->temp_[param_id]->mutable_gpu_data());
+		  caffe_gpu_axpy(net_params[param_id]->count(),
+			  local_decay,
+			  this->temp_[param_id]->gpu_data(),
+			  net_params[param_id]->mutable_gpu_diff());
+		} else {
+		  LOG(FATAL) << "Unknown regularization type: " << regularization_type;
+		}
+	  }
+
+	  caffe_gpu_axpby(net_params[param_id]->count(), local_rate,
+				net_params[param_id]->gpu_diff(), momentum,
+				this->history_[param_id]->mutable_gpu_data());
+
+	  // Not so sure about whether it should be addition or subtraction
+	  // theta_(t+1)=theta_t-gradient
+	  // Here temp_ is used to store theta_t+1,
+	  //theta_t is net_params[param_id]->cpu_data()
+	  caffe_gpu_add(net_params[param_id]->count(),
+			  net_params[param_id]->cpu_data(),
+			  this->history_[param_id]->cpu_data(),
+	          this->temp_[param_id]->mutable_cpu_data());
+
+	  caffe_gpu_axpby(net_params[param_id]->count(), (1-local_rate),
+			  this->temp_[param_id]->mutable_cpu_data(), local_rate,
+	  		  thetatilde_[param_id]->mutable_cpu_data());
+
+
+	  // copy
+	  caffe_copy(net_params[param_id]->count(),
+		  this->history_[param_id]->gpu_data(),
+		  net_params[param_id]->mutable_gpu_diff());
+	}
+#else
+	NO_GPU;
+#endif
+	break;
+  default:
+	LOG(FATAL) << "Unknown caffe mode: " << Caffe::mode();
+  }
+}
+
+
+
 INSTANTIATE_CLASS(Solver);
 INSTANTIATE_CLASS(SGDSolver);
 INSTANTIATE_CLASS(NesterovSolver);
 INSTANTIATE_CLASS(AdaGradSolver);
-
+INSTANTIATE_CLASS(PolyakAveragingSolver);
 }  // namespace caffe
