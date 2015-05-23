@@ -821,20 +821,16 @@ void AdaGradSolver<Dtype>::ComputeUpdateValue() {
 
 template <typename Dtype>
 void PolyakAveragingSolver<Dtype>::PreSolve() {
-	// Initialize the history
-	/*
 	const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
-	history_.clear();
-	update_.clear();
-	temp_.clear();
+	this->history_.clear();
+	this->update_.clear();
+	this->temp_.clear();
 	thetatilde_.clear();
-	*/
-	const vector<shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
 	for (int i = 0; i < net_params.size(); ++i) {
 		const vector<int>& shape = net_params[i]->shape();
-	//	history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
-	//	update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
-	//	temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+		this->history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+		this->update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+		this->temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
 		thetatilde_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
 	}
 }
@@ -888,7 +884,7 @@ void PolyakAveragingSolver<Dtype>::ComputeUpdateValue() {
 	  // theta_(t+1)=theta_t-gradient
 	  // Here temp_ is used to store theta_t+1,
 	  //theta_t is net_params[param_id]->cpu_data()
-	  //current gradient is in history_ due to the previous axpby
+	  //current gradient is in history_ due to previous axpby update
 	  caffe_add(net_params[param_id]->count(),
 			  net_params[param_id]->cpu_data(),
 			  this->history_[param_id]->cpu_data(),
